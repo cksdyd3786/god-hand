@@ -1,23 +1,9 @@
-# 실시간 수화 번역 프로젝트 (Sign-Sync)
-## 폴더 구조
-/frontend: 프런트엔드 소스 코드 (React 등)
+# 🖐️ God Hand (갓 핸드)
+> **"Your hand becomes the Ultimate Controller."**
 
-/backend: Node.js 서버 (실시간 데이터 중계)
+**God Hand**는 일반 웹캠과 MediaPipe를 활용하여 마우스 없이 손동작만으로 PC 환경을 제어하는 **실시간 비접촉 제스처 인터페이스**입니다.
 
-/ai: 수화 인식 모델 및 파이썬 추론 서버
-
-## 데이터 흐름 (예정)
-프런트엔드: 웹캠 영상을 WebSocket으로 백엔드에 전송
-
-백엔드(Node.js): 받은 데이터를 AI 서버(Python)로 전달
-
-AI 서버: 번역 결과를 백엔드로 반환
-
-백엔드: 최종 텍스트를 프런트엔드 실시간 전송
-
-## 백엔드 시작하기 (팀원 필독)
-cd backend (백엔드 폴더로 이동)
-
-npm install (필수 부품 설치)
-
-node main.js (서버 실행)
+## 🎯 주요 목표
+1. **Zero-Latency**: WebSocket 기반 초저지연 데이터 전송 기술 구현
+2. **God-like Precision**: 자체 좌표 보정 알고리즘을 통한 정밀한 조작감 제공
+3. **Immersive UX**: 직관적인 핸드 제스처 기반의 차세대 웹 탐색 환경 구축
