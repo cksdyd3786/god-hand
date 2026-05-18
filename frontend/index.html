@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>god-hand</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">GOD-HAND DESKTOP</p>
+          <h1>Runtime Dashboard</h1>
+        </div>
+        <div class="summary-strip" aria-label="앱 상태 요약">
+          <div class="status-pill" id="cameraPill" data-status="idle">
+            <span class="status-dot"></span>
+            <span id="cameraPillText">대기 중</span>
+          </div>
+          <div class="status-pill" id="backendPill" data-status="checking">
+            <span class="status-dot"></span>
+            <span id="backendPillText">확인 중</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="dashboard-grid" aria-label="프로세스 제어">
+        <section class="panel status-card" aria-labelledby="cameraTitle">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Camera</p>
+              <h2 id="cameraTitle">카메라 상태</h2>
+            </div>
+            <span class="path-note">../camera/main.py</span>
+          </div>
+
+          <div class="state-block">
+            <div class="state-display" id="cameraState">대기 중</div>
+            <p class="state-copy" id="cameraCopy">카메라 프로세스가 아직 실행되지 않았습니다.</p>
+          </div>
+
+          <div class="control-row">
+            <button id="cameraStartButton" class="button primary" type="button">카메라 시작</button>
+            <button id="cameraStopButton" class="button danger" type="button">카메라 중지</button>
+          </div>
+
+          <dl class="runtime-facts">
+            <div>
+              <dt>Python</dt>
+              <dd>../camera/venv/Scripts/python.exe</dd>
+            </div>
+            <div>
+              <dt>Script</dt>
+              <dd>../camera/main.py</dd>
+            </div>
+            <div>
+              <dt>Runner</dt>
+              <dd>child_process.spawn</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel status-card" aria-labelledby="backendTitle">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Backend</p>
+              <h2 id="backendTitle">백엔드 상태</h2>
+            </div>
+            <span class="path-note">localhost:3000</span>
+          </div>
+
+          <div class="state-block">
+            <div class="state-display" id="backendState">확인 중</div>
+            <p class="state-copy" id="backendCopy">localhost:3000 연결 상태를 확인합니다.</p>
+          </div>
+
+          <div class="control-row">
+            <button id="backendCheckButton" class="button" type="button">상태 확인</button>
+            <button id="backendStartButton" class="button primary" type="button">백엔드 시작</button>
+            <button id="backendStopButton" class="button danger" type="button">백엔드 중지</button>
+          </div>
+
+          <dl class="runtime-facts">
+            <div>
+              <dt>HTTP</dt>
+              <dd>http://localhost:3000</dd>
+            </div>
+            <div>
+              <dt>Entry</dt>
+              <dd>../backend/app.js</dd>
+            </div>
+            <div>
+              <dt>Runner</dt>
+              <dd>node app.js</dd>
+            </div>
+          </dl>
+        </section>
+      </section>
+
+      <section class="panel log-panel" aria-labelledby="logTitle">
+        <div class="panel-header">
+          <div>
+            <p class="section-kicker">Live Output</p>
+            <h2 id="logTitle">프로세스 로그</h2>
+          </div>
+          <button id="clearLogButton" class="button ghost" type="button">로그 지우기</button>
+        </div>
+        <pre id="logOutput" class="log-output" aria-live="polite"></pre>
+      </section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

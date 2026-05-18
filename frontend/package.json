@@ -1,0 +1,13 @@
+{
+  "name": "god-hand-frontend",
+  "version": "1.0.0",
+  "description": "Electron desktop frontend for controlling the god-hand camera process.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^30.5.1"
+  }
+}
