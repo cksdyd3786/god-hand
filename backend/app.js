@@ -1,35 +1,70 @@
+// backend/app.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
+const { Pool } = require('pg');
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
 
-// 웹소켓 서버 설정 (CORS 오류 방지)
+
+// PostgreSQL 연결 설정
+const pool = new Pool({
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_DATABASE,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+});
+
+// DB 연결 테스트
+pool.connect((err, client, release) => {
+  if (err) {
+    return console.error('❌ DB 연결 실패:', err.stack);
+  }
+  console.log('🐘 PostgreSQL 데이터베이스 연결 성공!');
+  release();
+});
+
+// CORS 설정 (프런트엔드 연동 대비)
 const io = new Server(server, {
-    cors: {
-        origin: "*", // 임시로 모든 접근 허용 (나중에 프런트엔드 주소로 변경)
-        methods: ["GET", "POST"]
-    }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
-// 1. 기본 HTTP 라우터 (서버가 잘 떴는지 웹 브라우저에서 확인용)
+// 파일명 오타 주의! 반드시 경로가 정확해야 합니다.
+// 아까 에러가 났던 부분이니 파일 이름을 socket-handler.js로 통일하세요.
+const socketHandler = require('./socket-handler');
+
+// 소켓 핸들러 실행
+socketHandler(io);
+
+const PORT = process.env.PORT || 3000;
+
+// backend/app.js 수정
 app.get('/', (req, res) => {
-    res.send('수화 번역 백엔드 서버가 정상 작동 중입니다!');
+  res.send(`
+    <html>
+      <body>
+        <h1>God Hand Backend Server is Running!</h1>
+        <button onclick="sendGesture()">오른쪽 이동 신호 보내기</button>
+        <script src="/socket.io/socket.io.js"></script>
+        <script>
+          const socket = io();
+          function sendGesture() {
+            socket.emit('gesture', { gesture: 'SWIPE_RIGHT' });
+            console.log('서버에 제스처를 보냈습니다!');
+          }
+        </script>
+      </body>
+    </html>
+  `);
 });
 
-// 2. 웹소켓 이벤트 처리
-io.on('connection', (socket) => {
-    console.log(`[🟢 연결 성공] 프런트엔드가 접속했습니다! ID: ${socket.id}`);
-
-    // 클라이언트가 연결을 끊었을 때
-    socket.on('disconnect', () => {
-        console.log(`[🔴 연결 해제] 접속이 끊어졌습니다. ID: ${socket.id}`);
-    });
-});
-
-// 3. 3000번 포트에서 서버 실행
-const PORT = 3000;
 server.listen(PORT, () => {
-    console.log(`🚀 서버가 http://localhost:${PORT} 에서 실행 중입니다!`);
+  console.log(`🚀 서버가 포트 ${PORT}에서 작동 중입니다.`);
 });
