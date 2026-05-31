@@ -1,2 +1,8 @@
 node_modules/
+dist/
 npm-debug.log*
+vite-dev*.log
+*.png
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
