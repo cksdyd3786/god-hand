@@ -1,66 +1,54 @@
-// client.js
-const io = require('socket.io-client');
+const { io } = require('socket.io-client');
 const robot = require('robotjs');
 
-const socket = io('http://localhost:3000');
-robot.setMouseDelay(2); // 반응 속도 최적화
+// 백엔드 서버 주소로 연결 (연동 테스트 시 백엔드 IP 주소로 변경)
+const socket = io('http://localhost:3000'); 
+
+// 마우스 반응 속도 최적화 (딜레이 없음)
+robot.setMouseDelay(0);
 
 socket.on('connect', () => {
-  console.log('✅ OS 제어 에이전트가 서버에 연결되었습니다!');
+  console.log('🚀 마우스 제어 에이전트가 백엔드 서버에 연결되었습니다!');
 });
 
-socket.on('command', (data) => {
-  if (!data || !data.action) return;
+// 백엔드가 전달해준 최종 명령 수신
+socket.on('agent_action', (data) => {
+  const action = data.action;
 
-  console.log('📥 서버로부터 받은 명령:', data);
-  const currentPos = robot.getMousePos();
-
-  switch (data.action) {
-    case 'MOUSE_MOVE':
-      // 0.0 ~ 1.0 비율 좌표를 해상도 픽셀(1920x1080)로 정밀 변환
+  switch (action) {
+    // 1. 실시간 마우스 포인터 좌표 이동
+    case 'MOVE':
       if (data.x !== undefined && data.y !== undefined) {
-        const targetX = Math.floor(data.x * 1920);
-        const targetY = Math.floor(data.y * 1080);
-        robot.moveMouse(targetX, targetY);
+        robot.moveMouse(data.x, data.y);
       }
       break;
 
-    case 'MOVE_RIGHT':
-      robot.moveMouse(currentPos.x + 150, currentPos.y);
-      console.log('👉 우측 이동 (+150px)');
+    // 2. 찬용님 DB 데이터(action_command)와 100% 일치하는 스위치문
+    case 'LEFT_CLICK':
+      robot.mouseClick('left');
+      console.log('🖱️ 좌클릭(LEFT_CLICK) 실행');
       break;
 
-    case 'MOVE_LEFT':
-      robot.moveMouse(currentPos.x - 150, currentPos.y);
-      console.log('👈 좌측 이동 (-150px)');
+    case 'RIGHT_CLICK':
+      robot.mouseClick('right');
+      console.log('🖱️ 우클릭(RIGHT_CLICK) 실행');
       break;
 
-    case 'MOVE_UP':
-      // 🚨 추가됨: 위쪽 이동은 Y축 값을 차감합니다.
-      robot.moveMouse(currentPos.x, currentPos.y - 150);
-      console.log('☝️ 위로 이동 (-150px)');
+    case 'DRAG_START':
+      robot.mouseToggle('down', 'left');
+      console.log('✋ 드래그 시작(DRAG_START)');
       break;
 
-    case 'MOVE_DOWN':
-      // 🚨 추가됨: 아래쪽 이동은 Y축 값을 증가시킵니다.
-      robot.moveMouse(currentPos.x, currentPos.y + 150);
-      console.log('👇 아래로 이동 (+150px)');
-      break;
-
-    case 'CLICK':
-      robot.mouseClick();
-      console.log('🖱️ 마우스 클릭 수행');
-      break;
-
-    case 'START_TRACKING':
-      console.log('🎯 트래킹 시작 신호 감지');
+    case 'DRAG_END':
+      robot.mouseToggle('up', 'left');
+      console.log('🤚 드래그 종료(DRAG_END)');
       break;
 
     default:
-      console.log('⚠️ 지원하지 않는 액션 명령입니다:', data.action);
+      console.log('❓ 정의되지 않은 액션 신호 수신:', action);
   }
 });
 
 socket.on('disconnect', () => {
-  console.log('❌ 서버와 연결이 끊어졌습니다.');
+  console.log('❌ 서버와의 연결이 끊어졌습니다.');
 });
