@@ -40,57 +40,55 @@ socketHandler(io, pool);
 const PORT = process.env.PORT || 3000;
 
 // 웹 테스트 UI 페이지
+// app.js (테스트 UI 페이지 라우터 부분)
 app.get('/', (req, res) => {
   res.send(`
-    <html>
-      <head>
-        <title>God Hand 제어 센터</title>
-        <style>
-          body { font-family: sans-serif; padding: 20px; text-align: center; }
-          button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
-          #trackpad { width: 400px; height: 250px; border: 2px dashed #ccc; margin: 20px auto; display: flex; align-items: center; justify-content: center; user-select: none; }
-        </style>
-      </head>
-      <body>
-        <h1> God Hand 컨트롤러 테스트 패널</h1>
-        
-        <h3>1. 개별 제스처 신호 보내기 (DB 매핑 테스트)</h3>
-        <button onclick="sendGesture('SWIPE_UP')">⬆️ 위로 이동 (SWIPE_UP)</button><br>
-        <button onclick="sendGesture('SWIPE_LEFT')">⬅️ 왼쪽 이동 (SWIPE_LEFT)</button>
-        <button onclick="sendGesture('FOLD_HAND')">🖱️ 클릭 (FOLD_HAND)</button>
-        <button onclick="sendGesture('SWIPE_RIGHT')">➡️ 오른쪽 이동 (SWIPE_RIGHT)</button><br>
-        <button onclick="sendGesture('SWIPE_DOWN')">⬇️ 아래로 이동 (SWIPE_DOWN)</button>
-        
-        <h3>2. 마우스 절대 좌표 트래킹 (0.0 ~ 1.0 비율 전송)</h3>
-        <div id="trackpad">여기 위에서 마우스를 움직여보세요 (실시간 좌표 전송)</div>
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+      <meta charset="UTF-8">
+      <title>God Hand 제어 센터 (테스트 리모컨)</title>
+      <script src="/socket.io/socket.io.js"></script>
+      <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        button { padding: 15px 25px; margin: 10px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; background-color: #007bff; color: white; }
+        button:hover { background-color: #0056b3; }
+        .move-btn { background-color: #28a745; }
+      </style>
+    </head>
+    <body>
+      <h1>🛠️ God Hand 테스트 리모컨</h1>
+      <p>버튼을 누르면 프론트엔드 앱을 대신해서 소켓 신호를 쏩니다.</p>
 
-        <script src="/socket.io/socket.io.js"></script>
-        <script>
-          const socket = io();
+      <button onclick="sendGesture('FIST')">✊ 주먹 (좌클릭)</button>
+      <button onclick="sendGesture('VICTORY')">✌️ 브이 (우클릭)</button>
+      <button onclick="sendGesture('PINCH')">🤏 꼬집기 (드래그 시작)</button>
+      <button onclick="sendGesture('OPEN_PALM')">✋ 손바닥 (드래그 종료)</button>
+      
+      <br><hr><br>
+      
+      <button class="move-btn" onclick="sendMove(500, 500)">➡️ 마우스 (500, 500) 위치로 이동</button>
 
-          // 버튼 클릭 시 일반 제스처 전송
-          function sendGesture(gestureName) {
-            socket.emit('gesture', { gesture: gestureName });
-            console.log('서버로 제스처 전송:', gestureName);
-          }
+      <script>
+        const socket = io(); // 현재 접속한 주소(localhost:3000)로 자동 연결
 
-          // 트랙패드 영역 마우스 움직임 감지
-          const trackpad = document.getElementById('trackpad');
-          trackpad.addEventListener('mousemove', (e) => {
-            const rect = trackpad.getBoundingClientRect();
-            // 패드 안에서의 가로, 세로 비율 계산 (0.0 ~ 1.0)
-            const xRatio = (e.clientX - rect.left) / rect.width;
-            const yRatio = (e.clientY - rect.top) / rect.height;
+        socket.on('connect', () => {
+          console.log('테스트 리모컨이 서버에 연결되었습니다!');
+        });
 
-            // 좌표 이동은 매핑을 거치지 않고 직접 통신 규격을 맞추어 쏩니다.
-            socket.emit('gesture', { 
-              gesture: 'MOUSE_MOVE', 
-              x: parseFloat(xRatio.toFixed(4)), 
-              y: parseFloat(yRatio.toFixed(4)) 
-            });
-          });
-        </script>
-      </body>
+        // 클릭, 드래그 등 DB를 거치는 제스처 신호 쏘기
+        function sendGesture(gestureName) {
+          console.log('발송 -> 제스처:', gestureName);
+          socket.emit('gesture', { gesture: gestureName });
+        }
+
+        // 실시간 좌표 이동 신호 쏘기
+        function sendMove(xPos, yPos) {
+          console.log('발송 -> 마우스 이동:', xPos, yPos);
+          socket.emit('gesture', { action: 'MOVE', x: xPos, y: yPos });
+        }
+      </script>
+    </body>
     </html>
   `);
 });

@@ -20,6 +20,7 @@ socket.on('agent_action', (data) => {
     case 'MOVE':
       if (data.x !== undefined && data.y !== undefined) {
         robot.moveMouse(data.x, data.y);
+        console.log(`📍 마우스 이동 좌표 수신 -> X: ${data.x}, Y: ${data.y}`);
       }
       break;
 
