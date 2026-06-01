@@ -8,6 +8,7 @@ import { GestureRecognitionPanel } from "./features/gesture/GestureRecognitionPa
 import { MouseControlPanel } from "./features/mouse/MouseControlPanel";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
 import { SystemHealthPanel } from "./features/system/SystemHealthPanel";
+import { io } from "socket.io-client";
 import type {
   ActivityEvent,
   CalibrationRuntimeState,
@@ -15,6 +16,8 @@ import type {
   MouseRuntimeState,
   VisionRuntimeState,
 } from "./lib/controlCenterTypes";
+
+const socket = io("http://localhost:3000");
 
 const initialCamera: CameraRuntimeState = {
   status: "idle",
@@ -81,6 +84,10 @@ function App() {
   const lastMoveRef = useRef(0);
   const wasPinchingRef = useRef(false);
   const calibrationBoundsRef = useRef<CalibrationRuntimeState["bounds"]>(null);
+  const pinchStartTimeRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const smoothedPosRef = useRef({ x: -1, y: -1 }); 
+  const toggleTimerRef = useRef(0);
 
   const [camera, setCamera] = useState<CameraRuntimeState>(initialCamera);
   const [vision, setVision] = useState<VisionRuntimeState>(initialVision);
@@ -88,11 +95,19 @@ function App() {
   const [calibration, setCalibration] = useState<CalibrationRuntimeState>(initialCalibration);
   const [events, setEvents] = useState<ActivityEvent[]>([
     createEvent("데스크톱 앱이 준비되었습니다. 카메라를 시작해 주세요.", "neutral"),
-  ]);
+  ]);  
 
   useEffect(() => {
+
+    socket.on("connect", () => {
+      pushEvent("갓핸드 중앙 백엔드 서버(Socket)와 연결되었습니다!", "green");
+    });
+
     checkNativeBridge();
-    return () => stopCamera();
+    return () => {
+      socket.off("connect");
+      stopCamera();
+    }; 
   }, []);
 
   const pushEvent = (message: string, tone: ActivityEvent["tone"] = "neutral") => {
@@ -221,12 +236,33 @@ function App() {
       return;
     }
 
+    const anchorPoint = landmarks[9];
     const gesture = readGesture(landmarks);
-    const target = mapToScreen(landmarks[8]);
-    drawHand(landmarks, gesture.isPinching);
-    updateCalibration(landmarks[8]);
-    await driveMouse(target.x, target.y, gesture.isPinching);
+    const target = mapToScreen(anchorPoint);
+    // 처음 손이 인식됐을 때는 현재 위치로 즉시 세팅
+    if (smoothedPosRef.current.x === -1) {
+      smoothedPosRef.current = { x: target.x, y: target.y };
+    }
+    
+    // 현재 마우스 위치와 목표 위치 사이의 거리 계산
+    const dx = target.x - smoothedPosRef.current.x;
+    const dy = target.y - smoothedPosRef.current.y;
+    const distance = Math.hypot(dx, dy);
 
+    // 1. 데드존 (Deadzone): 3픽셀 이하의 미세한 흔들림은 무시 (마우스 완전 고정)
+    if (distance > 3) {
+      
+      // 2. 동적 가중치 계산 (거리에 비례하여 반응 속도 조절)
+      // - 거리가 100 이상(빠른 이동): alpha가 0.6까지 올라가 딜레이 없이 휙 따라감
+      // - 거리가 15 이하(미세 조정): alpha가 0.15까지 떨어져 묵직하게 떨림을 잡아줌
+      const adaptiveAlpha = Math.min(Math.max(distance / 100, 0.15), 0.6);
+
+      smoothedPosRef.current.x += dx * adaptiveAlpha;
+      smoothedPosRef.current.y += dy * adaptiveAlpha;
+    }
+    drawHand(landmarks, gesture.isPinching);
+    updateCalibration(anchorPoint);
+    await driveMouse(target.x, target.y, gesture.isPinching, gesture.dbKey);  
     setVision({
       status: "detecting",
       gesture: gesture.name,
@@ -239,34 +275,56 @@ function App() {
     frameRef.current = requestAnimationFrame(detectFrame);
   };
 
-  const driveMouse = async (x: number, y: number, isPinching: boolean) => {
-    if (!mouse.enabled || mouse.bridge !== "ready") return;
+  const driveMouse = async (x: number, y: number, isPinching: boolean, dbKey: string) => {
+    if (!mouse.enabled) return;
 
     const now = performance.now();
+
+    // 1. 실시간 마우스 포인터 좌표 이동
     if (now - lastMoveRef.current > 24) {
-      await invoke("move_mouse", { x: Math.round(x), y: Math.round(y) }).catch((error) => {
-        setMouse((current) => ({ ...current, error: String(error), bridge: "unavailable" }));
-      });
+      socket.emit("gesture", { action: "MOVE", x: Math.round(x), y: Math.round(y) });
       lastMoveRef.current = now;
       setMouse((current) => ({
         ...current,
         position: { x: Math.round(x), y: Math.round(y) },
-        lastAction: "이동",
+        lastAction: isDraggingRef.current ? "드래그 이동" : "이동",
       }));
     }
 
+    // 2. 핀치 타이밍 판정 (단발 클릭 vs 지속 드래그)
     if (isPinching && !wasPinchingRef.current) {
-      await invoke("click_mouse", { button: "left" }).catch((error) => {
-        setMouse((current) => ({ ...current, error: String(error), bridge: "unavailable" }));
-      });
-      setMouse((current) => ({ ...current, lastAction: "왼쪽 클릭" }));
-      pushEvent("핀치 제스처로 왼쪽 클릭을 실행했습니다.", "blue");
+      // 핀치를 시작한 순간의 시간 기록
+      pinchStartTimeRef.current = now;
+    } 
+    else if (isPinching && wasPinchingRef.current) {
+      // 핀치 상태 유지 중: 200ms(0.2초) 넘게 꾹 쥐고 있으면 드래그 모드 발동!
+      if (now - pinchStartTimeRef.current > 200 && !isDraggingRef.current) {
+        isDraggingRef.current = true;
+        socket.emit("gesture", { gesture: "DRAG_START" });
+        setMouse((current) => ({ ...current, lastAction: "드래그 시작" }));
+        pushEvent("🔒 드래그 시작 (꾹 누르기)", "blue");
+      }
+    } 
+    else if (!isPinching && wasPinchingRef.current) {
+      // 손가락을 펼쳤을 때 (Release)
+      if (isDraggingRef.current) {
+        // 드래그 중이었다면 드래그 종료 신호 전송
+        isDraggingRef.current = false;
+        socket.emit("gesture", { gesture: "DRAG_END" });
+        setMouse((current) => ({ ...current, lastAction: "드래그 종료" }));
+        pushEvent("🔓 드래그 종료 (손가락 뗌)", "neutral");
+      } else {
+        // 200ms 이내에 뗐다면 단순 클릭으로 판정!
+        socket.emit("gesture", { gesture: "LEFT_CLICK" });
+        setMouse((current) => ({ ...current, lastAction: "왼쪽 클릭" }));
+        pushEvent("⚡ 일반 클릭 실행", "green");
+      }
     }
 
     wasPinchingRef.current = isPinching;
   };
 
-  const mapToScreen = (point: NormalizedLandmark) => {
+    const mapToScreen = (point: NormalizedLandmark) => {
     const screen = mouse.screen ?? { width: window.screen.width, height: window.screen.height };
     const bounds = calibrationBoundsRef.current;
     const sourceX = 1 - point.x;
@@ -433,18 +491,18 @@ function readGesture(landmarks: NormalizedLandmark[]) {
   const openCount = [indexOpen, middleOpen, ringOpen, pinkyOpen].filter(Boolean).length;
 
   if (pinchDistance < 0.055) {
-    return { name: "핀치 클릭", isPinching: true, pinchDistance };
+    return { name: "핀치 클릭", isPinching: true, dbKey: "PINCH", pinchDistance };
   }
 
   if (openCount >= 3) {
-    return { name: "손바닥 이동", isPinching: false, pinchDistance };
+    return { name: "손바닥 이동", isPinching: false, dbKey: "OPEN_PALM", pinchDistance };
   }
 
   if (indexOpen) {
-    return { name: "포인터 이동", isPinching: false, pinchDistance };
+    return { name: "포인터 이동", isPinching: false, dbKey: "POINTER", pinchDistance };
   }
 
-  return { name: "휴식", isPinching: false, pinchDistance };
+  return { name: "휴식", isPinching: false, dbKey: "IDLE", pinchDistance };
 }
 
 function distance(a: NormalizedLandmark, b: NormalizedLandmark) {
