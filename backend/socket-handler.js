@@ -5,18 +5,23 @@ module.exports = (io, pool) => {
     console.log(`🔌 기기가 연결되었습니다. ID: ${socket.id}`);
 
     socket.on('gesture', async (data) => {
-      if (!data || !data.gesture) return;
+      if (!data) return;
 
-      // [특수 처리] MOUSE_MOVE 제스처는 DB 매핑을 생략하고 좌표와 함께 즉시 에이전트로 전송합니다.
-      // 실시간 마우스 트래킹은 초당 수십 번 발생하므로 DB 조회를 생략해야 성능이 저하되지 않습니다.
-      if (data.gesture === 'MOUSE_MOVE') {
-        io.emit('command', { 
-          action: 'MOUSE_MOVE', 
+      // 🎯 [교정 1] 마우스 이동(MOVE) 특수 처리 구역을 맨 위로 격리
+      // 프론트(App.tsx)에서 보낸 action: 'MOVE' 신호를 가로챕니다. (gesture 키가 없어도 통과 가능)
+      if (data.action === 'MOVE' || data.gesture === 'MOUSE_MOVE') {
+        
+        // 🎯 [교정 2] 에이전트가 들을 수 있도록 이벤트 채널명을 'agent_action'으로 통일!
+        io.emit('agent_action', { 
+          action: 'MOVE', 
           x: data.x, 
           y: data.y 
         });
         return;
       }
+
+      // 🎯 [교정 3] 클릭/드래그 제스처는 기존처럼 gesture 키가 있을 때만 DB를 조회하도록 가드 배치
+      if (!data.gesture) return;
 
       try {
         const queryText = 'SELECT action_command FROM gesture_mappings WHERE gesture_name = $1';
@@ -37,14 +42,13 @@ module.exports = (io, pool) => {
           if (matchedAction) {
             console.log(`🔍 DB 매핑 성공: ${data.gesture} ➡️ ${matchedAction}`);
             
-            // 에이전트로 전송
-            io.emit('command', { action: matchedAction });
+            // 🎯 [교정 4] DB에서 매핑된 제스처 명령도 'agent_action' 채널로 에이전트에게 전송!
+            io.emit('agent_action', { action: matchedAction });
           } else {
             console.log(`⚠️ DB 결과는 있으나 action_command 값을 추출하지 못했습니다.`);
           }
         }
       } 
-      
       catch (err) {
         console.error('❌ DB 조회 중 에러 발생:', err.stack);
       }
