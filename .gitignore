@@ -1,3 +1,2 @@
 node_modules/
-#에이전트 폴더는 개인 로컬 테스트용이므로 제외
-agent/
+agent/node_modules/
