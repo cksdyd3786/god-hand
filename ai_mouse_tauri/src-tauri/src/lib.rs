@@ -2,7 +2,8 @@ use serde::Serialize;
 use std::mem::size_of;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEINPUT,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    MOUSEEVENTF_WHEEL, MOUSEINPUT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
@@ -63,6 +64,22 @@ fn set_drag(active: bool) -> Result<(), String> {
     send_mouse_input(0, 0, flag, 0)
 }
 
+#[tauri::command]
+fn scroll_mouse(delta: i32) -> Result<(), String> {
+    const WHEEL_DELTA: i32 = 120;
+
+    if delta == 0 {
+        return Ok(());
+    }
+
+    send_mouse_input(
+        0,
+        0,
+        MOUSEEVENTF_WHEEL,
+        delta.saturating_mul(WHEEL_DELTA) as u32,
+    )
+}
+
 fn send_mouse_input(dx: i32, dy: i32, flags: u32, mouse_data: u32) -> Result<(), String> {
     let mut input = INPUT {
         r#type: INPUT_MOUSE,
@@ -94,7 +111,8 @@ pub fn run() {
             screen_size,
             move_mouse,
             click_mouse,
-            set_drag
+            set_drag,
+            scroll_mouse
         ])
         .run(tauri::generate_context!())
         .expect("failed to run God Hand desktop app");

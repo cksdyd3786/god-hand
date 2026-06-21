@@ -72,6 +72,20 @@ const HAND_CONNECTIONS = [
   [19, 20],
 ] as const;
 
+const LEFT_PINCH_THRESHOLD = 0.055;
+const RIGHT_PINCH_THRESHOLD = 0.065;
+const DRAG_HOLD_MS = 300;
+const SCROLL_STEP_PIXELS = 32;
+const MAX_SCROLL_STEPS = 4;
+
+type Gesture = {
+  name: string;
+  isLeftPinching: boolean;
+  isRightPinching: boolean;
+  isFist: boolean;
+  pinchDistance: number;
+};
+
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -80,6 +94,11 @@ function App() {
   const landmarkerRef = useRef<HandLandmarker | null>(null);
   const lastMoveRef = useRef(0);
   const wasPinchingRef = useRef(false);
+  const mouseRef = useRef<MouseRuntimeState>(initialMouse);
+  const leftPinchStartedAtRef = useRef<number | null>(null);
+  const dragActiveRef = useRef(false);
+  const wasRightPinchingRef = useRef(false);
+  const scrollAnchorYRef = useRef<number | null>(null);
   const calibrationBoundsRef = useRef<CalibrationRuntimeState["bounds"]>(null);
 
   const [camera, setCamera] = useState<CameraRuntimeState>(initialCamera);
@@ -94,6 +113,10 @@ function App() {
     checkNativeBridge();
     return () => stopCamera();
   }, []);
+
+  useEffect(() => {
+    mouseRef.current = mouse;
+  }, [mouse]);
 
   const pushEvent = (message: string, tone: ActivityEvent["tone"] = "neutral") => {
     setEvents((current) => [createEvent(message, tone), ...current].slice(0, 10));
@@ -185,6 +208,7 @@ function App() {
     if (videoRef.current) videoRef.current.srcObject = null;
     clearCanvas();
     wasPinchingRef.current = false;
+    void cancelGestureControls();
     setCamera(initialCamera);
     setVision(initialVision);
   };
@@ -216,16 +240,17 @@ function App() {
         pinchDistance: null,
       }));
       wasPinchingRef.current = false;
+      void cancelGestureControls();
       clearCanvas();
       frameRef.current = requestAnimationFrame(detectFrame);
       return;
     }
 
-    const gesture = readGesture(landmarks);
-    const target = mapToScreen(landmarks[8]);
-    drawHand(landmarks, gesture.isPinching);
+    const gesture = readAdvancedGesture(landmarks);
+    const target = mapToScreen(gesture.isFist ? landmarks[9] : landmarks[8]);
+    drawHand(landmarks, gesture.isLeftPinching || gesture.isRightPinching || gesture.isFist);
     updateCalibration(landmarks[8]);
-    await driveMouse(target.x, target.y, gesture.isPinching);
+    await driveGesture(target.x, target.y, gesture);
 
     setVision({
       status: "detecting",
@@ -239,7 +264,8 @@ function App() {
     frameRef.current = requestAnimationFrame(detectFrame);
   };
 
-  const driveMouse = async (x: number, y: number, isPinching: boolean) => {
+  // Kept temporarily as a comparison point for the previous single-pinch behavior.
+  const legacyDriveMouse = async (x: number, y: number, isPinching: boolean) => {
     if (!mouse.enabled || mouse.bridge !== "ready") return;
 
     const now = performance.now();
@@ -264,6 +290,111 @@ function App() {
     }
 
     wasPinchingRef.current = isPinching;
+  };
+
+  const driveGesture = async (x: number, y: number, gesture: Gesture) => {
+    const currentMouse = mouseRef.current;
+    if (!currentMouse.enabled || currentMouse.bridge !== "ready") return;
+
+    const now = performance.now();
+
+    if (gesture.isFist) {
+      await completeLeftPinch();
+      wasRightPinchingRef.current = false;
+      await scrollFromFist(y);
+      return;
+    }
+
+    scrollAnchorYRef.current = null;
+
+    if (gesture.isLeftPinching) {
+      if (leftPinchStartedAtRef.current === null) {
+        await movePointer(x, y, true);
+        leftPinchStartedAtRef.current = now;
+        setMouse((current) => ({ ...current, lastAction: "핀치 준비" }));
+      } else if (!dragActiveRef.current && now - leftPinchStartedAtRef.current >= DRAG_HOLD_MS) {
+        await invoke("set_drag", { active: true }).catch(markBridgeUnavailable);
+        dragActiveRef.current = true;
+        setMouse((current) => ({ ...current, lastAction: "드래그 시작" }));
+        pushEvent("핀치 유지로 드래그를 시작했습니다.", "blue");
+      }
+    } else {
+      await completeLeftPinch();
+      await movePointer(x, y);
+    }
+
+    if (gesture.isRightPinching && !gesture.isLeftPinching) {
+      if (!wasRightPinchingRef.current) {
+        await invoke("click_mouse", { button: "right" }).catch(markBridgeUnavailable);
+        setMouse((current) => ({ ...current, lastAction: "우클릭" }));
+        pushEvent("중지 핀치로 우클릭을 실행했습니다.", "blue");
+      }
+      wasRightPinchingRef.current = true;
+    } else {
+      wasRightPinchingRef.current = false;
+    }
+  };
+
+  const movePointer = async (x: number, y: number, force = false) => {
+    const now = performance.now();
+    if (!force && now - lastMoveRef.current <= 24) return;
+
+    await invoke("move_mouse", { x: Math.round(x), y: Math.round(y) }).catch(markBridgeUnavailable);
+    lastMoveRef.current = now;
+    setMouse((current) => ({
+      ...current,
+      position: { x: Math.round(x), y: Math.round(y) },
+      lastAction: "이동",
+    }));
+  };
+
+  const completeLeftPinch = async () => {
+    if (leftPinchStartedAtRef.current === null) return;
+
+    if (dragActiveRef.current) {
+      await invoke("set_drag", { active: false }).catch(markBridgeUnavailable);
+      setMouse((current) => ({ ...current, lastAction: "드롭" }));
+      pushEvent("핀치 해제로 드래그를 종료했습니다.", "blue");
+    } else {
+      await invoke("click_mouse", { button: "left" }).catch(markBridgeUnavailable);
+      setMouse((current) => ({ ...current, lastAction: "좌클릭" }));
+      pushEvent("검지 핀치로 좌클릭을 실행했습니다.", "blue");
+    }
+
+    leftPinchStartedAtRef.current = null;
+    dragActiveRef.current = false;
+  };
+
+  const scrollFromFist = async (y: number) => {
+    if (scrollAnchorYRef.current === null) {
+      scrollAnchorYRef.current = y;
+      setMouse((current) => ({ ...current, lastAction: "스크롤 모드" }));
+      return;
+    }
+
+    const distanceY = scrollAnchorYRef.current - y;
+    const rawSteps = Math.trunc(distanceY / SCROLL_STEP_PIXELS);
+    const steps = clamp(rawSteps, -MAX_SCROLL_STEPS, MAX_SCROLL_STEPS);
+    if (steps === 0) return;
+
+    await invoke("scroll_mouse", { delta: steps }).catch(markBridgeUnavailable);
+    scrollAnchorYRef.current -= steps * SCROLL_STEP_PIXELS;
+    setMouse((current) => ({ ...current, lastAction: steps > 0 ? "위로 스크롤" : "아래로 스크롤" }));
+  };
+
+  const cancelGestureControls = async () => {
+    scrollAnchorYRef.current = null;
+    wasRightPinchingRef.current = false;
+    leftPinchStartedAtRef.current = null;
+
+    if (dragActiveRef.current && mouseRef.current.bridge === "ready") {
+      await invoke("set_drag", { active: false }).catch(markBridgeUnavailable);
+    }
+    dragActiveRef.current = false;
+  };
+
+  const markBridgeUnavailable = (error: unknown) => {
+    setMouse((current) => ({ ...current, error: String(error), bridge: "unavailable" }));
   };
 
   const mapToScreen = (point: NormalizedLandmark) => {
@@ -311,6 +442,7 @@ function App() {
   };
 
   const toggleMouse = () => {
+    if (mouseRef.current.enabled) void cancelGestureControls();
     setMouse((current) => {
       const enabled = !current.enabled;
       pushEvent(enabled ? "마우스 제어를 켰습니다." : "마우스 제어를 껐습니다.", enabled ? "green" : "neutral");
@@ -424,7 +556,7 @@ function App() {
   );
 }
 
-function readGesture(landmarks: NormalizedLandmark[]) {
+function readLegacyGesture(landmarks: NormalizedLandmark[]) {
   const pinchDistance = distance(landmarks[4], landmarks[8]);
   const indexOpen = landmarks[8].y < landmarks[6].y;
   const middleOpen = landmarks[12].y < landmarks[10].y;
@@ -445,6 +577,45 @@ function readGesture(landmarks: NormalizedLandmark[]) {
   }
 
   return { name: "휴식", isPinching: false, pinchDistance };
+}
+
+function readAdvancedGesture(landmarks: NormalizedLandmark[]): Gesture {
+  const pinchDistance = distance(landmarks[4], landmarks[8]);
+  const middlePinchDistance = distance(landmarks[4], landmarks[12]);
+  const palmSize = Math.max(distance(landmarks[0], landmarks[5]), 0.001);
+  const foldedCount = [
+    distance(landmarks[8], landmarks[5]) < palmSize * 0.65,
+    distance(landmarks[12], landmarks[9]) < palmSize * 0.65,
+    distance(landmarks[16], landmarks[13]) < palmSize * 0.65,
+    distance(landmarks[20], landmarks[17]) < palmSize * 0.65,
+  ].filter(Boolean).length;
+  const isLeftPinching = pinchDistance < LEFT_PINCH_THRESHOLD;
+  const isRightPinching = !isLeftPinching && middlePinchDistance < RIGHT_PINCH_THRESHOLD;
+  const isFist = !isLeftPinching && !isRightPinching && foldedCount >= 3;
+
+  if (isFist) {
+    return { name: "주먹 스크롤", isLeftPinching, isRightPinching, isFist, pinchDistance };
+  }
+  if (isLeftPinching) {
+    return { name: "검지 핀치", isLeftPinching, isRightPinching, isFist, pinchDistance };
+  }
+  if (isRightPinching) {
+    return { name: "중지 핀치", isLeftPinching, isRightPinching, isFist, pinchDistance };
+  }
+
+  const indexOpen = landmarks[8].y < landmarks[6].y;
+  const middleOpen = landmarks[12].y < landmarks[10].y;
+  const ringOpen = landmarks[16].y < landmarks[14].y;
+  const pinkyOpen = landmarks[20].y < landmarks[18].y;
+  const openCount = [indexOpen, middleOpen, ringOpen, pinkyOpen].filter(Boolean).length;
+
+  return {
+    name: openCount >= 3 ? "손바닥 이동" : indexOpen ? "검지 이동" : "휴식",
+    isLeftPinching,
+    isRightPinching,
+    isFist,
+    pinchDistance,
+  };
 }
 
 function distance(a: NormalizedLandmark, b: NormalizedLandmark) {
