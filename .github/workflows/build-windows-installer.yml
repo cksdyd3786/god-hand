@@ -47,20 +47,30 @@ jobs:
         run: npm run build -- --bundles nsis
         working-directory: ai_mouse_tauri
 
+      - name: Select generated installer
+        id: installer
+        shell: pwsh
+        run: |
+          $config = Get-Content 'ai_mouse_tauri/src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
+          $pattern = "$($config.productName)_$($config.version)_*-setup.exe"
+          $installer = Get-ChildItem 'ai_mouse_tauri/src-tauri/target/release/bundle/nsis' -Filter $pattern | Select-Object -First 1
+          if (-not $installer) {
+            throw "NSIS installer was not created: $pattern"
+          }
+
+          "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: God-Hand-Windows-Installer
-          path: ai_mouse_tauri/src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: ${{ steps.installer.outputs.path }}
           if-no-files-found: error
 
       - name: Commit installer to this branch
         shell: pwsh
         run: |
-          $installer = Get-ChildItem 'ai_mouse_tauri/src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' | Select-Object -First 1
-          if (-not $installer) {
-            throw 'NSIS installer was not created.'
-          }
+          $installer = Get-Item -LiteralPath '${{ steps.installer.outputs.path }}'
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
