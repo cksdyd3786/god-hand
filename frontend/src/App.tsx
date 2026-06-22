@@ -73,6 +73,7 @@ const HAND_CONNECTIONS = [
 ] as const;
 
 const LEFT_PINCH_THRESHOLD = 0.055;
+const LEFT_PINCH_RELEASE_THRESHOLD = 0.075;
 const RIGHT_PINCH_THRESHOLD = 0.065;
 const DRAG_HOLD_MS = 300;
 const SCROLL_STEP_PIXELS = 32;
@@ -297,8 +298,12 @@ function App() {
     if (!currentMouse.enabled || currentMouse.bridge !== "ready") return;
 
     const now = performance.now();
+    const leftPinchHeld = gesture.isLeftPinching || (
+      leftPinchStartedAtRef.current !== null &&
+      gesture.pinchDistance < LEFT_PINCH_RELEASE_THRESHOLD
+    );
 
-    if (gesture.isFist) {
+    if (gesture.isFist && !leftPinchHeld) {
       await completeLeftPinch();
       wasRightPinchingRef.current = false;
       await scrollFromFist(y);
@@ -307,7 +312,7 @@ function App() {
 
     scrollAnchorYRef.current = null;
 
-    if (gesture.isLeftPinching) {
+    if (leftPinchHeld) {
       if (leftPinchStartedAtRef.current === null) {
         await movePointer(x, y, true);
         leftPinchStartedAtRef.current = now;
@@ -318,12 +323,16 @@ function App() {
         setMouse((current) => ({ ...current, lastAction: "드래그 시작" }));
         pushEvent("핀치 유지로 드래그를 시작했습니다.", "blue");
       }
+
+      if (dragActiveRef.current) {
+        await movePointer(x, y);
+      }
     } else {
       await completeLeftPinch();
       await movePointer(x, y);
     }
 
-    if (gesture.isRightPinching && !gesture.isLeftPinching) {
+    if (gesture.isRightPinching && !leftPinchHeld) {
       if (!wasRightPinchingRef.current) {
         await invoke("click_mouse", { button: "right" }).catch(markBridgeUnavailable);
         setMouse((current) => ({ ...current, lastAction: "우클릭" }));

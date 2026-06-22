@@ -1,6 +1,6 @@
 [package]
 name = "god-hand-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "God Hand desktop control center"
 authors = ["God Hand"]
 edition = "2021"
